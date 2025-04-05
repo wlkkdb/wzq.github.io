@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>五子棋在线对战</title>
+    <!-- 引入PeerJS库 -->
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .header h1 {
+            color: #2c3e50;
+        }
+        .panel {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .hidden {
+            display: none;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        button:disabled {
+            background-color: #95a5a6;
+            cursor: not-allowed;
+        }
+        .error {
+            color: #e74c3c;
+            margin-top: 5px;
+        }
+        .success {
+            color: #2ecc71;
+            margin-top: 5px;
+        }
+        #game-board {
+            display: grid;
+            grid-template-columns: repeat(15, 40px);
+            grid-template-rows: repeat(15, 40px);
+            background-color: #e6c88c;
+            margin: 20px auto;
+            position: relative;
+        }
+        .cell {
+            width: 40px;
+            height: 40px;
+            box-sizing: border-box;
+            position: relative;
+            cursor: pointer;
+        }
+        .cell::before, .cell::after {
+            content: '';
+            position: absolute;
+            background-color: #000;
+        }
+        .cell::before {
+            width: 100%;
+            height: 1px;
+            top: 50%;
+            left: 0;
+            transform: translateY(-50%);
+        }
+        .cell::after {
+            width: 1px;
+            height: 100%;
+            left: 50%;
+            top: 0;
+            transform: translateX(-50%);
+        }
+        .piece {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            top: 5px;
+            left: 5px;
+            z-index: 10;
+        }
+        .piece.black {
+            background-color: #000;
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+        }
+        .piece.white {
+            background-color: #fff;
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.3);
+        }
+        .star-point {
+            position: absolute;
+            width: 6px;
+            height: 6px;
+            background-color: #000;
+            border-radius: 50%;
+            z-index: 5;
+        }
+        .game-info {
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 18px;
+        }
+        .connection-section {
+            margin-top: 20px;
+        }
+        .player-badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 12px;
+            margin-left: 5px;
+        }
+        .player-black {
+            background-color: #000;
+            color: white;
+        }
+        .player-white {
+            background-color: #fff;
+            color: #000;
+            border: 1px solid #ddd;
+        }
+        .waiting-message {
+            color: #e67e22;
+        }
+        #peer-id-display {
+            font-family: monospace;
+            background-color: #f0f0f0;
+            padding: 5px;
+            border-radius: 3px;
+        }
+        #remote-peer-id {
+            width: 200px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>五子棋在线对战</h1>
+        </div>
+
+        <!-- 登录面板 -->
+        <div id="auth-panel" class="panel">
+            <h2>用户登录</h2>
+            <div class="form-group">
+                <label for="username">用户名</label>
+                <input type="text" id="username" placeholder="输入用户名">
+                <div id="username-error" class="error"></div>
+            </div>
+            <button id="login-btn">进入游戏</button>
+            <div id="auth-message" class="success"></div>
+        </div>
+
+        <!-- 连接面板 -->
+        <div id="connection-panel" class="panel hidden">
+            <h2>连接设置</h2>
+            <div class="player-status">
+                当前用户: <span id="current-user"></span>
+            </div>
+            
+            <div class="connection-section">
+                <h3>我的连接ID</h3>
+                <div id="peer-id-display">正在生成ID...</div>
+                
+                <h3>连接到其他玩家</h3>
+                <div class="form-group">
+                    <input type="text" id="remote-peer-id" placeholder="输入对方的连接ID">
+                    <button id="connect-btn">连接</button>
+                </div>
+                <div id="connection-message" class="success"></div>
+                
+                <p id="connection-status">等待连接...</p>
+            </div>
+        </div>
+
+        <!-- 游戏面板 -->
+        <div id="game-panel" class="panel hidden">
+            <h2>五子棋对战</h2>
+            <div class="game-info">
+                <p>玩家: 
+                    <span id="player-black"></span>
+                    <span id="player-white"></span>
+                </p>
+                <p>当前回合: <span id="current-turn">黑棋</span></p>
+                <p id="game-result"></p>
+                <p id="waiting-message" class="waiting-message hidden">等待对方落子...</p>
+            </div>
+            <div id="game-board"></div>
+            <button id="back-to-lobby-btn">返回大厅</button>
+        </div>
+    </div>
+
+    <script>
+        // 游戏状态
+        let currentUser = null;
+        let peer = null;
+        let conn = null;
+        let currentGame = {
+            board: Array(15).fill().map(() => Array(15).fill(0)),
+            currentPlayer: 1, // 1: black, 2: white
+            winner: null,
+            playerBlack: null,
+            playerWhite: null
+        };
+        let playerColor = null; // 1: black, 2: white
+
+        // DOM元素
+        const authPanel = document.getElementById('auth-panel');
+        const connectionPanel = document.getElementById('connection-panel');
+        const gamePanel = document.getElementById('game-panel');
+        
+        const usernameInput = document.getElementById('username');
+        const usernameError = document.getElementById('username-error');
+        const authMessage = document.getElementById('auth-message');
+        
+        const currentUserSpan = document.getElementById('current-user');
+        const peerIdDisplay = document.getElementById('peer-id-display');
+        const remotePeerIdInput = document.getElementById('remote-peer-id');
+        const connectBtn = document.getElementById('connect-btn');
+        const connectionMessage = document.getElementById('connection-message');
+        const connectionStatus = document.getElementById('connection-status');
+        
+        const gameBoard = document.getElementById('game-board');
+        const currentTurnSpan = document.getElementById('current-turn');
+        const gameResult = document.getElementById('game-result');
+        const waitingMessage = document.getElementById('waiting-message');
+        const playerBlackSpan = document.getElementById('player-black');
+        const playerWhiteSpan = document.getElementById('player-white');
+        
+        // 初始化游戏板
+        function initGameBoard() {
+            gameBoard.innerHTML = '';
+            
+            // 创建棋盘格子
+            for (let y = 0; y < 15; y++) {
+                for (let x = 0; x < 15; x++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.dataset.x = x;
+                    cell.dataset.y = y;
+                    cell.addEventListener('click', handleCellClick);
+                    gameBoard.appendChild(cell);
+                }
+            }
+            
+            // 添加星位
+            const starPoints = [3, 7, 11];
+            starPoints.forEach(x => {
+                starPoints.forEach(y => {
+                    const star = document.createElement('div');
+                    star.className = 'star-point';
+                    star.style.left = `${x * 40 + 17}px`;
+                    star.style.top = `${y * 40 + 17}px`;
+                    gameBoard.appendChild(star);
+                });
+            });
+        }
+        
+        // 渲染游戏状态
+        function renderGame() {
+            if (!currentGame) return;
+            
+            // 清除所有棋子
+            document.querySelectorAll('.piece').forEach(p => p.remove());
+            
+            // 渲染棋子
+            for (let y = 0; y < 15; y++) {
+                for (let x = 0; x < 15; x++) {
+                    if (currentGame.board[y][x] !== 0) {
+                        const piece = document.createElement('div');
+                        piece.className = `piece ${currentGame.board[y][x] === 1 ? 'black' : 'white'}`;
+                        piece.style.left = `${x * 40 + 5}px`;
+                        piece.style.top = `${y * 40 + 5}px`;
+                        gameBoard.appendChild(piece);
+                    }
+                }
+            }
+            
+            // 更新游戏信息
+            currentTurnSpan.textContent = currentGame.currentPlayer === 1 ? '黑棋' : '白棋';
+            
+            if (currentGame.winner) {
+                gameResult.textContent = `游戏结束! ${currentGame.winner === 1 ? '黑棋' : '白棋'}获胜!`;
+            } else {
+                gameResult.textContent = '';
+            }
+            
+            // 更新等待消息
+            if (currentGame.currentPlayer !== playerColor && !currentGame.winner) {
+                waitingMessage.classList.remove('hidden');
+            } else {
+                waitingMessage.classList.add('hidden');
+            }
+        }
+        
+        // 处理格子点击
+        function handleCellClick(e) {
+            if (!conn || !conn.open) {
+                alert("尚未连接到其他玩家");
+                return;
+            }
+            
+            if (currentGame.winner) return;
+            
+            // 检查是否是当前玩家的回合
+            if (currentGame.currentPlayer !== playerColor) {
+                return;
+            }
+            
+            const x = parseInt(e.target.dataset.x);
+            const y = parseInt(e.target.dataset.y);
+            
+            // 检查位置是否为空
+            if (currentGame.board[y][x] !== 0) return;
+            
+            // 放置棋子
+            currentGame.board[y][x] = playerColor;
+            
+            // 检查胜利条件
+            if (checkWin(x, y, currentGame.board, playerColor)) {
+                currentGame.winner = playerColor;
+            } else if (isBoardFull(currentGame.board)) {
+                currentGame.winner = 0; // 平局
+            } else {
+                // 切换玩家
+                currentGame.currentPlayer = currentGame.currentPlayer === 1 ? 2 : 1;
+            }
+            
+            // 发送移动信息给对方
+            conn.send({
+                type: 'move',
+                x: x,
+                y: y,
+                player: playerColor,
+                gameState: currentGame
+            });
+            
+            renderGame();
+        }
+        
+        // 检查胜利条件
+        function checkWin(x, y, board, player) {
+            const directions = [
+                [ [1, 0], [-1, 0] ],   // 水平
+                [ [0, 1], [0, -1] ],   // 垂直
+                [ [1, 1], [-1, -1] ],  // 对角线
+                [ [1, -1], [-1, 1] ]   // 反对角线
+            ];
+            
+            for (const [dir1, dir2] of directions) {
+                let count = 1;
+                
+                // 检查第一个方向
+                let nx = x + dir1[0], ny = y + dir1[1];
+                while (nx >= 0 && nx < 15 && ny >= 0 && ny < 15 && board[ny][nx] === player) {
+                    count++;
+                    nx += dir1[0];
+                    ny += dir1[1];
+                }
+                
+                // 检查第二个方向
+                nx = x + dir2[0], ny = y + dir2[1];
+                while (nx >= 0 && nx < 15 && ny >= 0 && ny < 15 && board[ny][nx] === player) {
+                    count++;
+                    nx += dir2[0];
+                    ny += dir2[1];
+                }
+                
+                if (count >= 5) return true;
+            }
+            
+            return false;
+        }
+        
+        // 检查棋盘是否已满
+        function isBoardFull(board) {
+            for (let y = 0; y < 15; y++) {
+                for (let x = 0; x < 15; x++) {
+                    if (board[y][x] === 0) return false;
+                }
+            }
+            return true;
+        }
+        
+        // 初始化PeerJS连接
+        function initPeerConnection() {
+            // 创建Peer对象
+            peer = new Peer();
+            
+            peer.on('open', (id) => {
+                console.log('My peer ID is: ' + id);
+                peerIdDisplay.textContent = id;
+                connectionStatus.textContent = "就绪，等待连接...";
+            });
+            
+            peer.on('connection', (connection) => {
+                conn = connection;
+                setupConnection();
+            });
+            
+            peer.on('error', (err) => {
+                console.error('Peer error:', err);
+                connectionMessage.textContent = '连接错误: ' + err;
+            });
+        }
+        
+        // 设置连接事件处理
+        function setupConnection() {
+            conn.on('open', () => {
+                console.log('Connection established');
+                connectionStatus.textContent = "已连接到对方";
+                connectionPanel.classList.add('hidden');
+                gamePanel.classList.remove('hidden');
+                
+                // 确定玩家颜色（先连接的为黑棋）
+                if (!playerColor) {
+                    playerColor = 1; // 主机为黑棋
+                    currentGame.playerBlack = currentUser;
+                    
+                    // 发送游戏初始化信息
+                    conn.send({
+                        type: 'init',
+                        playerColor: 2, // 对方为白棋
+                        gameState: currentGame
+                    });
+                }
+                
+                initGameBoard();
+                updatePlayerInfo();
+                renderGame();
+            });
+            
+            conn.on('data', (data) => {
+                console.log('Received data:', data);
+                
+                if (data.type === 'init') {
+                    // 初始化游戏
+                    playerColor = data.playerColor;
+                    currentGame = data.gameState;
+                    
+                    if (playerColor === 2) {
+                        currentGame.playerWhite = currentUser;
+                    }
+                    
+                    updatePlayerInfo();
+                    initGameBoard();
+                    renderGame();
+                } else if (data.type === 'move') {
+                    // 更新游戏状态
+                    currentGame = data.gameState;
+                    renderGame();
+                }
+            });
+            
+            conn.on('close', () => {
+                console.log('Connection closed');
+                connectionStatus.textContent = "连接已断开";
+                gameResult.textContent = "对方已断开连接";
+            });
+            
+            conn.on('error', (err) => {
+                console.error('Connection error:', err);
+                connectionMessage.textContent = '连接错误: ' + err;
+            });
+        }
+        
+        // 更新玩家信息显示
+        function updatePlayerInfo() {
+            if (currentGame.playerBlack) {
+                playerBlackSpan.innerHTML = `${currentGame.playerBlack} <span class="player-badge player-black">黑棋</span>`;
+            }
+            if (currentGame.playerWhite) {
+                playerWhiteSpan.innerHTML = `${currentGame.playerWhite} <span class="player-badge player-white">白棋</span>`;
+            }
+        }
+        
+        // 用户登录
+        document.getElementById('login-btn').addEventListener('click', () => {
+            const username = usernameInput.value.trim();
+            
+            // 验证输入
+            usernameError.textContent = '';
+            
+            if (!username) {
+                usernameError.textContent = '请输入用户名';
+                return;
+            }
+            
+            currentUser = username;
+            currentUserSpan.textContent = username;
+            
+            // 切换到连接面板
+            authPanel.classList.add('hidden');
+            connectionPanel.classList.remove('hidden');
+            
+            // 初始化PeerJS连接
+            initPeerConnection();
+        });
+        
+        // 连接按钮
+        document.getElementById('connect-btn').addEventListener('click', () => {
+            const remotePeerId = remotePeerIdInput.value.trim();
+            
+            if (!remotePeerId) {
+                connectionMessage.textContent = '请输入对方的连接ID';
+                return;
+            }
+            
+            if (!peer) {
+                connectionMessage.textContent = 'Peer未初始化';
+                return;
+            }
+            
+            connectionMessage.textContent = '正在连接...';
+            conn = peer.connect(remotePeerId);
+            setupConnection();
+        });
+        
+        // 返回大厅
+        document.getElementById('back-to-lobby-btn').addEventListener('click', () => {
+            if (conn && conn.open) {
+                conn.close();
+            }
+            
+            gamePanel.classList.add('hidden');
+            connectionPanel.classList.remove('hidden');
+            
+            // 重置游戏状态
+            currentGame = {
+                board: Array(15).fill().map(() => Array(15).fill(0)),
+                currentPlayer: 1,
+                winner: null,
+                playerBlack: null,
+                playerWhite: null
+            };
+            playerColor = null;
+        });
+        
+        // 初始化
+        initGameBoard();
+    </script>
+</body>
+</html>

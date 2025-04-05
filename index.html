@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>五子棋在线对战</title>
-    <!-- 引入PeerJS库 -->
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <style>
         body {
@@ -167,9 +166,34 @@
             background-color: #f0f0f0;
             padding: 5px;
             border-radius: 3px;
+            margin-bottom: 10px;
+            word-break: break-all;
         }
         #remote-peer-id {
-            width: 200px;
+            width: 100%;
+            max-width: 300px;
+        }
+        .copy-btn {
+            background-color: #2ecc71;
+            padding: 5px 10px;
+            font-size: 14px;
+        }
+        .copy-btn:hover {
+            background-color: #27ae60;
+        }
+        #connection-status {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+            background-color: #f8f9fa;
+        }
+        .connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
         }
     </style>
 </head>
@@ -195,12 +219,13 @@
         <div id="connection-panel" class="panel hidden">
             <h2>连接设置</h2>
             <div class="player-status">
-                当前用户: <span id="current-user"></span>
+                当前用户: <strong id="current-user"></strong>
             </div>
             
             <div class="connection-section">
                 <h3>我的连接ID</h3>
                 <div id="peer-id-display">正在生成ID...</div>
+                <button id="copy-id-btn" class="copy-btn">复制我的ID</button>
                 
                 <h3>连接到其他玩家</h3>
                 <div class="form-group">
@@ -209,7 +234,7 @@
                 </div>
                 <div id="connection-message" class="success"></div>
                 
-                <p id="connection-status">等待连接...</p>
+                <div id="connection-status" class="disconnected">等待连接...</div>
             </div>
         </div>
 
@@ -227,6 +252,7 @@
             </div>
             <div id="game-board"></div>
             <button id="back-to-lobby-btn">返回大厅</button>
+            <button id="new-game-btn">新游戏</button>
         </div>
     </div>
 
@@ -243,6 +269,7 @@
             playerWhite: null
         };
         let playerColor = null; // 1: black, 2: white
+        let isConnected = false;
 
         // DOM元素
         const authPanel = document.getElementById('auth-panel');
@@ -255,6 +282,7 @@
         
         const currentUserSpan = document.getElementById('current-user');
         const peerIdDisplay = document.getElementById('peer-id-display');
+        const copyIdBtn = document.getElementById('copy-id-btn');
         const remotePeerIdInput = document.getElementById('remote-peer-id');
         const connectBtn = document.getElementById('connect-btn');
         const connectionMessage = document.getElementById('connection-message');
@@ -266,7 +294,9 @@
         const waitingMessage = document.getElementById('waiting-message');
         const playerBlackSpan = document.getElementById('player-black');
         const playerWhiteSpan = document.getElementById('player-white');
-        
+        const backToLobbyBtn = document.getElementById('back-to-lobby-btn');
+        const newGameBtn = document.getElementById('new-game-btn');
+
         // 初始化游戏板
         function initGameBoard() {
             gameBoard.innerHTML = '';
@@ -278,7 +308,7 @@
                     cell.className = 'cell';
                     cell.dataset.x = x;
                     cell.dataset.y = y;
-                    cell.addEventListener('click', handleCellClick);
+                    cell.addEventListener('click', () => handleCellClick(x, y));
                     gameBoard.appendChild(cell);
                 }
             }
@@ -318,9 +348,15 @@
             
             // 更新游戏信息
             currentTurnSpan.textContent = currentGame.currentPlayer === 1 ? '黑棋' : '白棋';
+            currentTurnSpan.style.color = currentGame.currentPlayer === 1 ? '#000' : '#555';
             
             if (currentGame.winner) {
-                gameResult.textContent = `游戏结束! ${currentGame.winner === 1 ? '黑棋' : '白棋'}获胜!`;
+                if (currentGame.winner === 0) {
+                    gameResult.textContent = "游戏结束! 平局!";
+                } else {
+                    const winnerName = currentGame.winner === 1 ? currentGame.playerBlack : currentGame.playerWhite;
+                    gameResult.textContent = `游戏结束! ${winnerName} 获胜!`;
+                }
             } else {
                 gameResult.textContent = '';
             }
@@ -334,24 +370,28 @@
         }
         
         // 处理格子点击
-        function handleCellClick(e) {
-            if (!conn || !conn.open) {
+        function handleCellClick(x, y) {
+            if (!isConnected) {
                 alert("尚未连接到其他玩家");
                 return;
             }
             
-            if (currentGame.winner) return;
-            
-            // 检查是否是当前玩家的回合
-            if (currentGame.currentPlayer !== playerColor) {
+            if (currentGame.winner) {
+                alert("游戏已结束，请开始新游戏");
                 return;
             }
             
-            const x = parseInt(e.target.dataset.x);
-            const y = parseInt(e.target.dataset.y);
+            // 检查是否是当前玩家的回合
+            if (currentGame.currentPlayer !== playerColor) {
+                alert("请等待对方落子");
+                return;
+            }
             
             // 检查位置是否为空
-            if (currentGame.board[y][x] !== 0) return;
+            if (currentGame.board[y][x] !== 0) {
+                alert("该位置已有棋子");
+                return;
+            }
             
             // 放置棋子
             currentGame.board[y][x] = playerColor;
@@ -367,13 +407,15 @@
             }
             
             // 发送移动信息给对方
-            conn.send({
-                type: 'move',
-                x: x,
-                y: y,
-                player: playerColor,
-                gameState: currentGame
-            });
+            if (conn && conn.open) {
+                conn.send({
+                    type: 'move',
+                    x: x,
+                    y: y,
+                    player: playerColor,
+                    gameState: currentGame
+                });
+            }
             
             renderGame();
         }
@@ -425,15 +467,24 @@
         // 初始化PeerJS连接
         function initPeerConnection() {
             // 创建Peer对象
-            peer = new Peer();
+            peer = new Peer({
+                debug: 3,
+                config: {
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:global.stun.twilio.com:3478?transport=udp' }
+                    ]
+                }
+            });
             
             peer.on('open', (id) => {
                 console.log('My peer ID is: ' + id);
                 peerIdDisplay.textContent = id;
-                connectionStatus.textContent = "就绪，等待连接...";
+                updateConnectionStatus("就绪，等待连接...", false);
             });
             
             peer.on('connection', (connection) => {
+                console.log('收到连接请求');
                 conn = connection;
                 setupConnection();
             });
@@ -441,6 +492,13 @@
             peer.on('error', (err) => {
                 console.error('Peer error:', err);
                 connectionMessage.textContent = '连接错误: ' + err;
+                updateConnectionStatus("连接错误: " + err, false);
+            });
+            
+            peer.on('disconnected', () => {
+                console.log('Peer disconnected');
+                updateConnectionStatus("连接已断开", false);
+                isConnected = false;
             });
         }
         
@@ -448,7 +506,8 @@
         function setupConnection() {
             conn.on('open', () => {
                 console.log('Connection established');
-                connectionStatus.textContent = "已连接到对方";
+                isConnected = true;
+                updateConnectionStatus("已连接到对方", true);
                 connectionPanel.classList.add('hidden');
                 gamePanel.classList.remove('hidden');
                 
@@ -456,6 +515,7 @@
                 if (!playerColor) {
                     playerColor = 1; // 主机为黑棋
                     currentGame.playerBlack = currentUser;
+                    currentGame.currentPlayer = 1;
                     
                     // 发送游戏初始化信息
                     conn.send({
@@ -477,6 +537,7 @@
                     // 初始化游戏
                     playerColor = data.playerColor;
                     currentGame = data.gameState;
+                    currentGame.currentPlayer = 1; // 总是由黑棋开始
                     
                     if (playerColor === 2) {
                         currentGame.playerWhite = currentUser;
@@ -489,19 +550,35 @@
                     // 更新游戏状态
                     currentGame = data.gameState;
                     renderGame();
+                } else if (data.type === 'new-game') {
+                    // 开始新游戏
+                    resetGame();
+                    if (playerColor === 1) {
+                        currentGame.currentPlayer = 1;
+                    }
+                    renderGame();
                 }
             });
             
             conn.on('close', () => {
                 console.log('Connection closed');
-                connectionStatus.textContent = "连接已断开";
+                isConnected = false;
+                updateConnectionStatus("连接已断开", false);
                 gameResult.textContent = "对方已断开连接";
             });
             
             conn.on('error', (err) => {
                 console.error('Connection error:', err);
+                isConnected = false;
                 connectionMessage.textContent = '连接错误: ' + err;
+                updateConnectionStatus("连接错误: " + err, false);
             });
+        }
+        
+        // 更新连接状态显示
+        function updateConnectionStatus(message, connected) {
+            connectionStatus.textContent = message;
+            connectionStatus.className = connected ? 'connected' : 'disconnected';
         }
         
         // 更新玩家信息显示
@@ -512,6 +589,17 @@
             if (currentGame.playerWhite) {
                 playerWhiteSpan.innerHTML = `${currentGame.playerWhite} <span class="player-badge player-white">白棋</span>`;
             }
+        }
+        
+        // 重置游戏状态
+        function resetGame() {
+            currentGame = {
+                board: Array(15).fill().map(() => Array(15).fill(0)),
+                currentPlayer: 1,
+                winner: null,
+                playerBlack: currentGame.playerBlack,
+                playerWhite: currentGame.playerWhite
+            };
         }
         
         // 用户登录
@@ -537,8 +625,21 @@
             initPeerConnection();
         });
         
+        // 复制ID按钮
+        copyIdBtn.addEventListener('click', () => {
+            const peerId = peerIdDisplay.textContent;
+            if (peerId && peerId !== '正在生成ID...') {
+                navigator.clipboard.writeText(peerId).then(() => {
+                    connectionMessage.textContent = '已复制ID到剪贴板';
+                    setTimeout(() => connectionMessage.textContent = '', 2000);
+                }).catch(err => {
+                    connectionMessage.textContent = '复制失败: ' + err;
+                });
+            }
+        });
+        
         // 连接按钮
-        document.getElementById('connect-btn').addEventListener('click', () => {
+        connectBtn.addEventListener('click', () => {
             const remotePeerId = remotePeerIdInput.value.trim();
             
             if (!remotePeerId) {
@@ -552,12 +653,26 @@
             }
             
             connectionMessage.textContent = '正在连接...';
-            conn = peer.connect(remotePeerId);
-            setupConnection();
+            conn = peer.connect(remotePeerId, {
+                reliable: true,
+                serialization: 'json'
+            });
+            
+            conn.on('open', () => {
+                isConnected = true;
+                connectionMessage.textContent = '连接成功!';
+                setupConnection();
+            });
+            
+            conn.on('error', (err) => {
+                isConnected = false;
+                connectionMessage.textContent = '连接失败: ' + err;
+                updateConnectionStatus("连接失败: " + err, false);
+            });
         });
         
         // 返回大厅
-        document.getElementById('back-to-lobby-btn').addEventListener('click', () => {
+        backToLobbyBtn.addEventListener('click', () => {
             if (conn && conn.open) {
                 conn.close();
             }
@@ -566,14 +681,30 @@
             connectionPanel.classList.remove('hidden');
             
             // 重置游戏状态
-            currentGame = {
-                board: Array(15).fill().map(() => Array(15).fill(0)),
-                currentPlayer: 1,
-                winner: null,
-                playerBlack: null,
-                playerWhite: null
-            };
+            resetGame();
             playerColor = null;
+        });
+        
+        // 新游戏按钮
+        newGameBtn.addEventListener('click', () => {
+            if (!isConnected) {
+                alert("尚未连接到其他玩家");
+                return;
+            }
+            
+            resetGame();
+            if (playerColor === 1) {
+                currentGame.currentPlayer = 1;
+            }
+            
+            if (conn && conn.open) {
+                conn.send({
+                    type: 'new-game',
+                    gameState: currentGame
+                });
+            }
+            
+            renderGame();
         });
         
         // 初始化
